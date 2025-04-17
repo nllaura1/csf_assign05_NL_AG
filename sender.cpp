@@ -19,10 +19,7 @@ int main(int argc, char **argv) {
 
   Connection conn;
 
-  if (!conn.connect(server_hostname, server_port)) {
-    std::cerr << "Error: could not connect to server.\n";
-    return 1;
-  }
+  conn.connect(server_hostname, server_port);
 
   // Step 1: send slogin
   Message login_msg(TAG_SLOGIN, username);
