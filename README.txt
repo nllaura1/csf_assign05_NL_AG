@@ -1,4 +1,4 @@
-Nicholas Llaurado
+Nicholas Llaurado Antony Goldenberg
 
 Eventually your report about how you implemented thread synchronization
 in the server should go here
