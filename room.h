@@ -15,6 +15,10 @@ public:
     void add_member(User *user, MessageQueue *mqueue);
     void remove_member(User *user);
     void broadcast_message(const std::string &sender_username, const std::string &message_text);
+    std::string get_room_name() const {
+      return room_name;
+  }
+  
 
 private:
     std::string room_name;

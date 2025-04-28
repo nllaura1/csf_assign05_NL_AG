@@ -55,7 +55,7 @@ void chat_with_sender(ClientInfo* client) {
             }
             client->room = new_room;
             client->room->add_member(client->user, client->mqueue); // <-- IMPORTANT
-            conn->send(Message(TAG_OK, "joined room"));
+            conn->send(Message(TAG_OK, "joined room " + new_room->get_room_name()));
         } else if (msg.tag == TAG_LEAVE) {
             if (client->room) {
                 client->room->remove_member(client->user);
@@ -91,7 +91,7 @@ void chat_with_receiver(ClientInfo* client) {
   }
   client->room = new_room;
   client->room->add_member(client->user, client->mqueue);
-  conn->send(Message(TAG_OK, "joined room"));
+  conn->send(Message(TAG_OK, new_room->get_room_name()));
 
   // Step 3: Receiver now just dequeues and sends messages
   while (true) {
@@ -135,10 +135,10 @@ void *worker(void *arg) {
     client->room = nullptr;
 
     if (login_msg.tag == TAG_SLOGIN) {
-        conn->send(Message(TAG_OK, "logged in as sender"));
+        conn->send(Message(TAG_OK, "logged in as " + login_msg.data));
         chat_with_sender(client);
     } else if (login_msg.tag == TAG_RLOGIN) {
-        conn->send(Message(TAG_OK, "logged in as receiver"));
+        conn->send(Message(TAG_OK, "logged in as " + login_msg.data));
         chat_with_receiver(client);
     }
 
