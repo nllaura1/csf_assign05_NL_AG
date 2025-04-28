@@ -6,40 +6,32 @@
 
 Room::Room(const std::string &room_name)
   : room_name(room_name) {
-  // Initialize the mutex
-  pthread_mutex_init(&lock, nullptr);
+    pthread_mutex_init(&lock, nullptr);
 }
 
 Room::~Room() {
-  // Destroy the mutex
-  pthread_mutex_destroy(&lock);
-  
-  // Note: We don't delete User objects here as they're owned by the Server
+    pthread_mutex_destroy(&lock);
 }
 
-void Room::add_member(User *user) {
-  Guard guard(lock); // RAII lock acquisition
-  
-  // Add user to the members set
-  members.insert(user);
+void Room::add_member(User *user, MessageQueue *mqueue) {
+    Guard guard(lock);
+    members[user] = mqueue;
 }
 
 void Room::remove_member(User *user) {
-  Guard guard(lock); // RAII lock acquisition
-  
-  // Remove user from the members set
-  members.erase(user);
+    Guard guard(lock);
+    members.erase(user);
 }
 
 void Room::broadcast_message(const std::string &sender_username, const std::string &message_text) {
-  Guard guard(lock);
-  
-  // Create properly formatted message using existing constructor
-  std::string payload = room_name + ":" + sender_username + ":" + message_text;
-  Message *msg = new Message(TAG_DELIVERY, payload);
-  
-  // Send to all members
-  for (User *user : members) {
-    user->mqueue.enqueue(msg);
-  }
+    Guard guard(lock);
+
+    std::string payload = room_name + ":" + sender_username + ":" + message_text;
+    //printf("[server] Broadcasting from %s: %s\n", sender_username.c_str(), message_text.c_str());
+
+    for (auto &entry : members) {
+        MessageQueue* mqueue = entry.second;
+        Message* msg = new Message(TAG_DELIVERY, payload);
+        mqueue->enqueue(msg);
+    }
 }

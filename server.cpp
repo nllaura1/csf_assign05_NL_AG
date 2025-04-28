@@ -17,8 +17,13 @@
 // Server implementation data types
 ////////////////////////////////////////////////////////////////////////
 
-// TODO: add any additional data types that might be helpful
-//       for implementing the Server member functions
+struct ClientInfo {
+    Connection* conn;
+    Server* server;
+    MessageQueue* mqueue;
+    Room* room;
+    User* user;  
+};
 
 ////////////////////////////////////////////////////////////////////////
 // Client thread functions
@@ -26,22 +31,126 @@
 
 namespace {
 
+void chat_with_sender(ClientInfo* client) {
+    Connection* conn = client->conn;
+    Server* server = client->server;
+
+    while (true) {
+        Message msg;
+        if (!conn->receive(msg)) {
+            break; // client disconnected
+        }
+
+        if (msg.tag == TAG_SENDALL) {
+            if (client->room) {
+                client->room->broadcast_message(client->user->username, msg.data);
+                conn->send(Message(TAG_OK, "message sent"));
+            } else {
+                conn->send(Message(TAG_ERR, "sender not in a room"));
+            }
+        } else if (msg.tag == TAG_JOIN) {
+            Room* new_room = server->find_or_create_room(msg.data);
+            if (client->room) {
+                client->room->remove_member(client->user);
+            }
+            client->room = new_room;
+            client->room->add_member(client->user, client->mqueue); // <-- IMPORTANT
+            conn->send(Message(TAG_OK, "joined room"));
+        } else if (msg.tag == TAG_LEAVE) {
+            if (client->room) {
+                client->room->remove_member(client->user);
+                client->room = nullptr;
+                conn->send(Message(TAG_OK, "left room"));
+            } else {
+                conn->send(Message(TAG_ERR, "not in a room"));
+            }
+        } else {
+            conn->send(Message(TAG_ERR, "invalid command"));
+        }
+    }
+}
+
+void chat_with_receiver(ClientInfo* client) {
+  Connection* conn = client->conn;
+
+  // Step 1: Receiver must first send JOIN
+  Message join_msg;
+  if (!conn->receive(join_msg)) {
+      return;
+  }
+
+  if (join_msg.tag != TAG_JOIN) {
+      conn->send(Message(TAG_ERR, "Expected JOIN"));
+      return;
+  }
+
+  // Step 2: Add receiver to the room
+  Room* new_room = client->server->find_or_create_room(join_msg.data);
+  if (client->room) {
+      client->room->remove_member(client->user);
+  }
+  client->room = new_room;
+  client->room->add_member(client->user, client->mqueue);
+  conn->send(Message(TAG_OK, "joined room"));
+
+  // Step 3: Receiver now just dequeues and sends messages
+  while (true) {
+      Message* msg = client->mqueue->dequeue();
+      if (msg) {
+          if (!conn->send(*msg)) {
+              delete msg;
+              break; // disconnected
+          }
+          delete msg;
+      }
+  }
+}
+
+
+
 void *worker(void *arg) {
-  pthread_detach(pthread_self());
+    pthread_detach(pthread_self());
 
-  // TODO: use a static cast to convert arg from a void* to
-  //       whatever pointer type describes the object(s) needed
-  //       to communicate with a client (sender or receiver)
+    ClientInfo* client = static_cast<ClientInfo*>(arg);
 
-  // TODO: read login message (should be tagged either with
-  //       TAG_SLOGIN or TAG_RLOGIN), send response
+    Connection* conn = client->conn;
 
-  // TODO: depending on whether the client logged in as a sender or
-  //       receiver, communicate with the client (implementing
-  //       separate helper functions for each of these possibilities
-  //       is a good idea)
+    Message login_msg;
+    if (!conn->receive(login_msg)) {
+        goto cleanup;
+    }
 
-  return nullptr;
+    if (login_msg.tag != TAG_SLOGIN && login_msg.tag != TAG_RLOGIN) {
+        conn->send(Message(TAG_ERR, "expected slogin or rlogin"));
+        goto cleanup;
+    }
+
+    if (login_msg.data.empty()) {
+        conn->send(Message(TAG_ERR, "empty username"));
+        goto cleanup;
+    }
+
+    client->user = new User(login_msg.data);
+    client->mqueue = new MessageQueue();
+    client->room = nullptr;
+
+    if (login_msg.tag == TAG_SLOGIN) {
+        conn->send(Message(TAG_OK, "logged in as sender"));
+        chat_with_sender(client);
+    } else if (login_msg.tag == TAG_RLOGIN) {
+        conn->send(Message(TAG_OK, "logged in as receiver"));
+        chat_with_receiver(client);
+    }
+
+cleanup:
+    if (client->room) {
+        client->room->remove_member(client->user);
+    }
+    delete client->user;
+    delete client->mqueue;
+    delete client->conn;
+    delete client;
+    return nullptr;
 }
 
 }
@@ -53,24 +162,36 @@ void *worker(void *arg) {
 Server::Server(int port)
   : m_port(port)
   , m_ssock(-1) {
-  // TODO: initialize mutex
+    pthread_mutex_init(&m_lock, nullptr);
 }
 
 Server::~Server() {
-  // TODO: destroy mutex
+    pthread_mutex_destroy(&m_lock);
 }
 
 bool Server::listen() {
-  // TODO: use open_listenfd to create the server socket, return true
-  //       if successful, false if not
+    m_ssock = open_listenfd(std::to_string(m_port).c_str());
+    return (m_ssock >= 0);
 }
 
 void Server::handle_client_requests() {
-  // TODO: infinite loop calling accept or Accept, starting a new
-  //       pthread for each connected client
+    while (true) {
+        int csock = Accept(m_ssock, nullptr, nullptr);
+        if (csock < 0) {
+            continue;
+        }
+        Connection* conn = new Connection(csock);
+        ClientInfo* info = new ClientInfo{conn, this, nullptr, nullptr, nullptr};
+        pthread_t thr_id;
+        pthread_create(&thr_id, nullptr, worker, info);
+    }
 }
 
 Room *Server::find_or_create_room(const std::string &room_name) {
-  // TODO: return a pointer to the unique Room object representing
-  //       the named chat room, creating a new one if necessary
+    Guard guard(m_lock);
+    Room* &room = m_rooms[room_name];
+    if (!room) {
+        room = new Room(room_name);
+    }
+    return room;
 }

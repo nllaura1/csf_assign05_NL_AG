@@ -72,6 +72,9 @@ int main(int argc, char **argv) {
       break;
     }
 
+    //std::cout << "[DEBUG] Received raw payload: " << reply.data << std::endl;
+
+
     // Process delivery messages (actual chat messages)
     if (reply.tag == TAG_DELIVERY) {
       std::string payload = reply.data;
