@@ -27,12 +27,12 @@ void Room::broadcast_message(const std::string &sender_username, const std::stri
     Guard guard(lock);
 
     std::string payload = room_name + ":" + sender_username + ":" + message_text;
-    //printf("[server] Broadcasting from %s: %s\n", sender_username.c_str(), message_text.c_str());
+    printf("[server] Broadcasting from %s: %s\n", sender_username.c_str(), message_text.c_str());
 
     for (auto &entry : members) {
         MessageQueue* mqueue = entry.second;
-        Message* msg = new Message(TAG_DELIVERY, payload);
+        Message* msg = new Message(TAG_DELIVERY, payload); // create fresh copy
         mqueue->enqueue(msg);
+        printf("[queue] Enqueued message: %s\n", payload.c_str());
     }
 }
-

@@ -30,45 +30,48 @@ struct ClientInfo {
 ////////////////////////////////////////////////////////////////////////
 
 namespace {
-
-void chat_with_sender(ClientInfo* client) {
-    Connection* conn = client->conn;
-    Server* server = client->server;
-
-    while (true) {
-        Message msg;
-        if (!conn->receive(msg)) {
-            break; // client disconnected
-        }
-
-        if (msg.tag == TAG_SENDALL) {
-            if (client->room) {
-                client->room->broadcast_message(client->user->username, msg.data);
-                conn->send(Message(TAG_OK, "message sent"));
+    void chat_with_sender(ClientInfo* client) {
+        Connection* conn = client->conn;
+        Server* server = client->server;
+    
+        while (true) {
+            Message msg;
+            if (!conn->receive(msg)) {
+                break; // client disconnected
+            }
+    
+            if (msg.tag == TAG_SENDALL) {
+                if (client->room) {
+                    client->room->broadcast_message(client->user->username, msg.data);
+                    conn->send(Message(TAG_OK, "message sent"));
+                } else {
+                    conn->send(Message(TAG_ERR, "not in a room"));
+                }
+            } else if (msg.tag == TAG_JOIN) {
+                Room* new_room = server->find_or_create_room(msg.data);
+                if (client->room) {
+                    client->room->remove_member(client->user);
+                }
+                client->room = new_room;
+                client->room->add_member(client->user, client->mqueue);
+                conn->send(Message(TAG_OK, "joined room " + client->room->get_room_name()));
+            } else if (msg.tag == TAG_LEAVE) {
+                if (client->room) {
+                    client->room->remove_member(client->user);
+                    conn->send(Message(TAG_OK, "left room " + client->room->get_room_name()));
+                    client->room = nullptr;
+                } else {
+                    conn->send(Message(TAG_ERR, "not in a room"));
+                }
+            } else if (msg.tag == TAG_QUIT) {
+                conn->send(Message(TAG_OK, "bye!"));
+                break; // Exit the sender loop
             } else {
-                conn->send(Message(TAG_ERR, "sender not in a room"));
+                conn->send(Message(TAG_ERR, "invalid command"));
             }
-        } else if (msg.tag == TAG_JOIN) {
-            Room* new_room = server->find_or_create_room(msg.data);
-            if (client->room) {
-                client->room->remove_member(client->user);
-            }
-            client->room = new_room;
-            client->room->add_member(client->user, client->mqueue); // <-- IMPORTANT
-            conn->send(Message(TAG_OK, "joined room " + new_room->get_room_name()));
-        } else if (msg.tag == TAG_LEAVE) {
-            if (client->room) {
-                client->room->remove_member(client->user);
-                client->room = nullptr;
-                conn->send(Message(TAG_OK, "left room"));
-            } else {
-                conn->send(Message(TAG_ERR, "not in a room"));
-            }
-        } else {
-            conn->send(Message(TAG_ERR, "invalid command"));
         }
     }
-}
+    
 
 void chat_with_receiver(ClientInfo* client) {
   Connection* conn = client->conn;
@@ -76,6 +79,7 @@ void chat_with_receiver(ClientInfo* client) {
   // Step 1: Receiver must first send JOIN
   Message join_msg;
   if (!conn->receive(join_msg)) {
+      conn->send(Message(TAG_ERR, "invalid message"));
       return;
   }
 
@@ -91,7 +95,7 @@ void chat_with_receiver(ClientInfo* client) {
   }
   client->room = new_room;
   client->room->add_member(client->user, client->mqueue);
-  conn->send(Message(TAG_OK, new_room->get_room_name()));
+  conn->send(Message(TAG_OK, "welcome"));
 
   // Step 3: Receiver now just dequeues and sends messages
   while (true) {
